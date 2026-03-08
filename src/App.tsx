@@ -30,7 +30,9 @@ import {
   Users,
   Lock,
   Shield,
-  BarChart3
+  BarChart3,
+  Link as LinkIcon,
+  Scissors
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from "@google/genai";
@@ -254,6 +256,28 @@ export default function App() {
   const [selectedLog, setSelectedLog] = useState<Log | null>(null);
   const [notification, setNotification] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [shortenedLinks, setShortenedLinks] = useState<Record<string, string>>({});
+  const [isShortening, setIsShortening] = useState<string | null>(null);
+  const [copiedShortId, setCopiedShortId] = useState<string | null>(null);
+
+  const handleShortenLink = async (pageId: string) => {
+    setIsShortening(pageId);
+    try {
+      const longUrl = `${window.location.origin}/preview/${pageId}`;
+      const res = await fetch(`https://tinyurl.com/api-create.php?url=${encodeURIComponent(longUrl)}`);
+      if (res.ok) {
+        const shortUrl = await res.text();
+        setShortenedLinks(prev => ({ ...prev, [pageId]: shortUrl }));
+        showNotification("Lien raccourci !", "success");
+      } else {
+        showNotification("Erreur de raccourcissement", "error");
+      }
+    } catch (err) {
+      showNotification("Service indisponible", "error");
+    } finally {
+      setIsShortening(null);
+    }
+  };
   
   // Change Password State
   const [passwords, setPasswords] = useState({ current: '', new: '', confirm: '' });
@@ -954,7 +978,36 @@ export default function App() {
                         </button>
                       </div>
                     </div>
-                    <div className="px-8 pb-8">
+                    <div className="px-8 pb-8 space-y-4">
+                      {shortenedLinks[page.id] ? (
+                        <div className="flex items-center justify-between p-3 bg-nexus-accent/5 border border-nexus-accent/20 rounded-xl">
+                          <div className="flex items-center gap-3 overflow-hidden">
+                            <Scissors size={14} className="text-nexus-accent shrink-0" />
+                            <span className="text-xs font-mono text-nexus-accent truncate">{shortenedLinks[page.id]}</span>
+                          </div>
+                          <button 
+                            onClick={() => {
+                              navigator.clipboard.writeText(shortenedLinks[page.id]);
+                              setCopiedShortId(page.id);
+                              setTimeout(() => setCopiedShortId(null), 2000);
+                              showNotification("Lien copié !", "success");
+                            }}
+                            className="flex items-center gap-2 px-3 py-1 bg-nexus-accent/10 hover:bg-nexus-accent/20 text-nexus-accent text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all"
+                          >
+                            {copiedShortId === page.id ? <Check size={12} /> : <Copy size={12} />}
+                            {copiedShortId === page.id ? 'Copié' : 'Copier'}
+                          </button>
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={() => handleShortenLink(page.id)}
+                          disabled={isShortening === page.id}
+                          className="w-full flex items-center justify-center gap-2 py-2 border border-dashed border-nexus-accent/30 rounded-xl text-[10px] font-mono uppercase tracking-widest text-nexus-muted hover:text-nexus-accent hover:border-nexus-accent/60 transition-all"
+                        >
+                          {isShortening === page.id ? <RefreshCw className="animate-spin" size={12} /> : <LinkIcon size={12} />}
+                          Raccourcir le lien
+                        </button>
+                      )}
                       <div className="flex items-center gap-6">
                         <div className="flex items-center gap-2 text-[10px] font-mono text-nexus-muted uppercase tracking-widest">
                           <Zap className="text-nexus-accent" size={14} /> 
