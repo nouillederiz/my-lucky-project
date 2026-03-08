@@ -18,80 +18,96 @@ const SUPABASE_KEY = process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_KEY |
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const app = express();
-app.use(express.json());
-app.use(cookieParser());
 
-// Auth Middleware
-const authenticate = (req: any, res: any, next: any) => {
-  const token = req.cookies.token;
-  if (!token) return res.status(401).json({ error: "Unauthorized" });
+async function startServer() {
+  const PORT = Number(process.env.PORT) || 3000;
+
+  // Initialize Admin User if not exists
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
+    const { data: adminUser } = await supabase.from('users').select('*').eq('username', 'admin').single();
+    if (!adminUser) {
+      const hashedPassword = bcrypt.hashSync("Ph1sh3ur-Pro-2026", 10);
+      await supabase.from('users').insert([{ username: 'admin', password: hashedPassword, role: 'admin' }]);
+      console.log("Default admin user created in Supabase: admin / Ph1sh3ur-Pro-2026");
+    }
   } catch (err) {
-    res.status(401).json({ error: "Invalid token" });
+    console.error("Failed to initialize admin user:", err);
   }
-};
 
-// Diagnostic & Setup Route
-app.get("/api/setup", async (req, res) => {
-  const results: any = {
-    supabase_url: SUPABASE_URL ? "Configured" : "Missing",
-    supabase_key: SUPABASE_KEY ? (SUPABASE_KEY.startsWith('ey') ? "Service Role (Correct)" : "Anon Key (Incorrect)") : "Missing",
-    tables: {}
+  app.use(express.json());
+  app.use(cookieParser());
+
+  // Auth Middleware
+  const authenticate = (req: any, res: any, next: any) => {
+    const token = req.cookies.token;
+    if (!token) return res.status(401).json({ error: "Unauthorized" });
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      req.user = decoded;
+      next();
+    } catch (err) {
+      res.status(401).json({ error: "Invalid token" });
+    }
   };
 
-  try {
-    // Test users table
-    const { error: userError } = await supabase.from('users').select('count', { count: 'exact', head: true });
-    results.tables.users = userError ? `Error: ${userError.message}` : "OK";
+  // Diagnostic & Setup Route
+  app.get("/api/setup", async (req, res) => {
+    const results: any = {
+      supabase_url: SUPABASE_URL ? "Configured" : "Missing",
+      supabase_key: SUPABASE_KEY ? (SUPABASE_KEY.startsWith('ey') ? "Service Role (Correct)" : "Anon Key (Incorrect)") : "Missing",
+      tables: {}
+    };
 
-    // Force create admin if OK
-    if (!userError) {
-      const { data: adminUser } = await supabase.from('users').select('*').eq('username', 'admin').single();
-      if (!adminUser) {
-        const hashedPassword = bcrypt.hashSync("Ph1sh3ur-Pro-2026", 10);
-        const { error: insertError } = await supabase.from('users').insert([{ username: 'admin', password: hashedPassword, role: 'admin' }]);
-        results.admin_creation = insertError ? `Failed: ${insertError.message}` : "Success (admin / Ph1sh3ur-Pro-2026)";
-      } else {
-        results.admin_creation = "Already exists";
+    try {
+      // Test users table
+      const { error: userError } = await supabase.from('users').select('count', { count: 'exact', head: true });
+      results.tables.users = userError ? `Error: ${userError.message}` : "OK";
+
+      // Force create admin if OK
+      if (!userError) {
+        const { data: adminUser } = await supabase.from('users').select('*').eq('username', 'admin').single();
+        if (!adminUser) {
+          const hashedPassword = bcrypt.hashSync("Ph1sh3ur-Pro-2026", 10);
+          const { error: insertError } = await supabase.from('users').insert([{ username: 'admin', password: hashedPassword, role: 'admin' }]);
+          results.admin_creation = insertError ? `Failed: ${insertError.message}` : "Success (admin / Ph1sh3ur-Pro-2026)";
+        } else {
+          results.admin_creation = "Already exists";
+        }
       }
+    } catch (err: any) {
+      results.error = err.message;
     }
-  } catch (err: any) {
-    results.error = err.message;
-  }
 
-  res.json(results);
-});
+    res.json(results);
+  });
 
-// Auth Routes
-app.post("/api/login", async (req, res) => {
-  const { username, password } = req.body;
-  console.log(`Login attempt for user: ${username}`);
-  
-  try {
-    const { data: user, error } = await supabase.from('users').select('*').eq('username', username).single();
+  // Auth Routes
+  app.post("/api/login", async (req, res) => {
+    const { username, password } = req.body;
+    console.log(`Login attempt for user: ${username}`);
     
-    if (error) {
-      console.error("Supabase error during login:", error);
-      return res.status(401).json({ error: "User not found or database error" });
-    }
+    try {
+      const { data: user, error } = await supabase.from('users').select('*').eq('username', username).single();
+      
+      if (error) {
+        console.error("Supabase error during login:", error);
+        return res.status(401).json({ error: "User not found or database error" });
+      }
 
-    if (!user || !bcrypt.compareSync(password, user.password)) {
-      console.warn(`Invalid credentials for user: ${username}`);
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
+      if (!user || !bcrypt.compareSync(password, user.password)) {
+        console.warn(`Invalid credentials for user: ${username}`);
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
 
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: "24h" });
-    res.cookie("token", token, { httpOnly: true, secure: true, sameSite: 'none', maxAge: 24 * 60 * 60 * 1000 });
-    console.log(`Login successful for user: ${username}`);
-    res.json({ id: user.id, username: user.username, role: user.role });
-  } catch (err) {
-    console.error("Unexpected error during login:", err);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
+      const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: "24h" });
+      res.cookie("token", token, { httpOnly: true, secure: true, sameSite: 'none', maxAge: 24 * 60 * 60 * 1000 });
+      console.log(`Login successful for user: ${username}`);
+      res.json({ id: user.id, username: user.username, role: user.role });
+    } catch (err) {
+      console.error("Unexpected error during login:", err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
 
   app.post("/api/logout", (req, res) => {
     res.clearCookie("token");
