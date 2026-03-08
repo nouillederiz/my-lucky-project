@@ -174,23 +174,17 @@ app.post("/api/webhook/:pageId", async (req, res) => {
   const data = JSON.stringify(req.body);
   console.log(`Webhook received for page ${pageId}:`, req.body);
   
-  // Check if webhook is enabled for this page
   const { data: page } = await supabase.from('pages').select('webhook_enabled').eq('id', pageId).single();
   if (!page || !page.webhook_enabled) {
-    console.log(`Webhook disabled for page ${pageId}`);
     return res.json({ success: false, message: "Webhook disabled for this page" });
   }
 
-  // Bot detection (Honeypot)
   if (req.body._hp_field) {
-    console.log("Bot detected via honeypot field");
     return res.json({ success: true, bot: true });
   }
 
-  // Log the event
   await supabase.from('logs').insert([{ page_id: pageId, event_type: "interaction", data }]);
 
-  // Forward to Discord if configured
   const { data: discordWebhook } = await supabase.from('settings').select('value').eq('key', 'discord_webhook').single();
   if (discordWebhook?.value) {
     try {
@@ -276,51 +270,99 @@ app.post("/api/settings", authenticate, async (req, res) => {
 });
 
 app.get("/preview/:id", async (req, res) => {
-  const { data: page } = await supabase.from('pages').select('*').eq('id', req.params.id).single();
-  if (!page) return res.status(404).send("Page not found");
+  try {
+    const { data: page } = await supabase.from('pages').select('*').eq('id', req.params.id).single();
+    if (!page) return res.status(404).send("Page not found");
 
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>${page.title}</title>
-      <style>
-        body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
-        .hp-field { display: none !important; visibility: hidden !important; }
-      </style>
-    </head>
-    <body>
-      ${page.content}
-      <script>
-        document.addEventListener('DOMContentLoaded', () => {
-          const pageId = "${page.id}";
-          const forms = document.querySelectorAll('form');
-          forms.forEach(form => {
-            form.addEventListener('submit', async (e) => {
-              e.preventDefault();
-              const data = {};
-              const inputs = form.querySelectorAll('input, textarea, select');
-              inputs.forEach(input => {
-                const key = input.name || input.id || 'field';
-                data[key] = input.value;
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${page.title}</title>
+        <style>
+          body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
+          .hp-field { display: none !important; visibility: hidden !important; }
+          #action-button { cursor: pointer; }
+        </style>
+      </head>
+      <body>
+        ${page.content}
+        <script>
+          document.addEventListener('DOMContentLoaded', () => {
+            const pageId = "${page.id}";
+            
+            const forms = document.querySelectorAll('form');
+            forms.forEach(form => {
+              if (!form.querySelector('input[name="_hp_field"]')) {
+                const hp = document.createElement('input');
+                hp.type = 'text';
+                hp.name = '_hp_field';
+                hp.className = 'hp-field';
+                form.appendChild(hp);
+              }
+
+              form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const data = {};
+                const inputs = form.querySelectorAll('input, textarea, select');
+                inputs.forEach(input => {
+                  if (input.name === '_hp_field') return;
+                  const key = input.name || input.id || 'field_' + Math.random().toString(36).substr(2, 4);
+                  data[key] = input.value;
+                });
+                
+                await fetch('/api/webhook/' + pageId, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ ...data, _event_type: 'form_submission', _url: window.location.href })
+                });
+                
+                const btn = form.querySelector('button[type="submit"]');
+                if (btn) btn.innerText = "Success!";
+                setTimeout(() => { window.location.reload(); }, 2000);
               });
+            });
+
+            document.addEventListener('click', async (e) => {
+              const target = e.target.closest('button, a.btn, .button, #action-button');
+              if (!target || (target.type === 'submit' && target.closest('form'))) return;
+              
               await fetch('/api/webhook/' + pageId, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...data, _event_type: 'form_submission' })
+                body: JSON.stringify({ 
+                  text: target.innerText, 
+                  _event_type: 'click', 
+                  _url: window.location.href 
+                })
               });
-              alert('Error connecting to server. Please try again later.');
             });
           });
-        });
-      </script>
-    </body>
-    </html>
-  `;
-  res.send(html);
+        </script>
+      </body>
+      </html>
+    `;
+    res.send(html);
+  } catch (err) {
+    res.status(500).send("Server error");
+  }
 });
+
+// Static files and SPA fallback
+if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
+  const clientPath = path.join(process.cwd(), "dist", "client");
+  app.use(express.static(clientPath));
+  
+  app.get("/*", (req, res, next) => {
+    const url = req.url.split('?')[0];
+    if (url.startsWith('/api') || url.startsWith('/preview')) {
+      return next();
+    }
+    res.sendFile(path.join(clientPath, "index.html"));
+  });
+}
 
 async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
@@ -349,7 +391,7 @@ async function startServer() {
     app.get("/*", async (req, res, next) => {
       const url = req.url.split('?')[0];
       if (url.startsWith('/api') || url.startsWith('/preview')) {
-        return res.status(404).json({ error: "API route not found" });
+        return next();
       }
       try {
         const html = await vite.transformIndexHtml(req.url, `
@@ -371,16 +413,6 @@ async function startServer() {
         vite.ssrFixStacktrace(e as Error);
         next(e);
       }
-    });
-  } else {
-    // In production, server.js is in dist/server.js, so __dirname is dist/
-    app.use(express.static(path.join(__dirname, "client")));
-    app.get("/*", (req, res) => {
-      const url = req.url.split('?')[0];
-      if (url.startsWith('/api') || url.startsWith('/preview')) {
-        return res.status(404).json({ error: "API route not found" });
-      }
-      res.sendFile(path.join(__dirname, "client", "index.html"));
     });
   }
 
