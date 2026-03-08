@@ -177,10 +177,11 @@ app.get("/api/pages", authenticate, async (req, res) => {
 });
 
 app.post("/api/pages", authenticate, async (req, res) => {
-  const { id, title, button_text, content, webhook_enabled } = req.body;
+  const { id, title, button_text, content, webhook_enabled, history } = req.body;
   const { error } = await supabase.from('pages').upsert({ 
     id, title, button_text, content, 
     webhook_enabled: webhook_enabled ? true : false,
+    history: history || [],
     updated_at: new Date().toISOString()
   });
   if (error) return res.status(400).json({ error: error.message });

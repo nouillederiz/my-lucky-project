@@ -56,6 +56,7 @@ interface Page {
   button_text: string;
   content: string;
   webhook_enabled: boolean;
+  history?: string[];
   created_at: string;
 }
 
@@ -337,7 +338,8 @@ export default function App() {
     content: '', 
     ai_prompt: '', 
     logo_url: '',
-    webhook_enabled: true 
+    webhook_enabled: true,
+    history: [] as string[]
   });
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -534,7 +536,8 @@ export default function App() {
         content: '', 
         ai_prompt: '', 
         logo_url: '',
-        webhook_enabled: true 
+        webhook_enabled: true,
+        history: []
       });
       fetchData();
     } catch (err) {
@@ -549,7 +552,8 @@ export default function App() {
       content: page.content,
       ai_prompt: '',
       logo_url: '',
-      webhook_enabled: page.webhook_enabled
+      webhook_enabled: page.webhook_enabled,
+      history: page.history || []
     });
     setEditingId(page.id);
     setIsCreating(true);
@@ -569,7 +573,8 @@ export default function App() {
       content: page.content,
       ai_prompt: '',
       logo_url: '',
-      webhook_enabled: page.webhook_enabled
+      webhook_enabled: page.webhook_enabled,
+      history: []
     });
     setEditingId(null);
     setIsCreating(true);
@@ -712,6 +717,10 @@ export default function App() {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const logoToUse = newPage.logo_url || settings.logo_url;
       
+      const historyContext = newPage.history.length > 0 
+        ? `\n\nPREVIOUS MODIFICATIONS HISTORY (Context for you to remember previous changes):\n${newPage.history.map((h, i) => `${i+1}. ${h}`).join('\n')}`
+        : '';
+
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: `Generate a professional, high-end HTML and CSS code for a landing page.
@@ -719,6 +728,7 @@ export default function App() {
         Button Text: "${newPage.button_text}"
         ${logoToUse ? `Logo URL: "${logoToUse}" (Include this logo at the top of the page)` : ''}
         ${newPage.ai_prompt ? `User Instructions: "${newPage.ai_prompt}"` : 'Style: Dark theme, modern typography (Inter), premium feel.'}
+        ${historyContext}
         
         IMPORTANT REQUIREMENTS:
         1. The main action button MUST have id="action-button".
@@ -727,11 +737,22 @@ export default function App() {
         4. SECURITY: Add a "honeypot" field to any forms (an input that is hidden from users but bots will fill). 
            The honeypot input should have name="_hp_field" and be hidden via CSS.
         5. FORM DETECTION: If the user instructions imply a form (like "contact form" or "signup"), create a clean form.
-        6. Return ONLY the HTML code, no markdown blocks.`,
+        6. CURRENT CODE (if any, modify it based on instructions):
+           ${newPage.content}
+        7. Return ONLY the HTML code, no markdown blocks.`,
       });
       
       const html = response.text || '';
-      setNewPage(prev => ({ ...prev, content: html }));
+      
+      // Update history (keep last 9)
+      const newHistory = [...newPage.history, newPage.ai_prompt || "Génération initiale"].slice(-9);
+      
+      setNewPage(prev => ({ 
+        ...prev, 
+        content: html, 
+        history: newHistory,
+        ai_prompt: '' // Clear prompt after generation
+      }));
       showNotification("Génération IA terminée !", "success");
     } catch (err: any) {
       console.error("AI Generation Error:", err);
@@ -1102,114 +1123,192 @@ export default function App() {
               {/* Create Modal */}
               <AnimatePresence>
                 {isCreating && (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+                  <div className="fixed inset-0 z-[150] flex items-center justify-center">
                     <motion.div 
                       initial={{ opacity: 0 }} 
                       animate={{ opacity: 1 }} 
                       exit={{ opacity: 0 }}
                       onClick={() => { setIsCreating(false); setEditingId(null); }}
-                      className="absolute inset-0 bg-black/80 backdrop-blur-sm" 
+                      className="absolute inset-0 bg-black/95 backdrop-blur-md" 
                     />
                     <motion.div
-                      initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                      initial={{ opacity: 0, scale: 0.98, y: 10 }}
                       animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                      className="relative w-full max-w-4xl glass-panel p-8 overflow-y-auto max-h-[90vh]"
+                      exit={{ opacity: 0, scale: 0.98, y: 10 }}
+                      className="relative w-[95vw] h-[90vh] glass-panel p-0 overflow-hidden flex flex-col border-nexus-accent/20"
                     >
-                      <h3 className="text-2xl font-bold mb-8">{editingId ? 'Edit Page' : 'Create New Page'}</h3>
-                      
-                      <div className="grid grid-cols-2 gap-8">
-                        <div className="space-y-6">
-                          <div className="flex flex-col gap-2">
-                            <label className="text-sm font-medium text-nexus-muted">Page Title</label>
-                            <input 
-                              type="text" 
-                              value={newPage.title}
-                              onChange={e => setNewPage(prev => ({ ...prev, title: e.target.value }))}
-                              placeholder="e.g. Welcome Landing"
-                              className="nexus-input"
-                            />
+                      {/* Modal Header */}
+                      <div className="p-6 border-b border-nexus-border flex items-center justify-between bg-white/[0.02]">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-xl bg-nexus-accent/10 flex items-center justify-center text-nexus-accent border border-nexus-accent/20">
+                            <FilePlus size={20} />
                           </div>
-                          <div className="flex flex-col gap-2">
-                            <label className="text-sm font-medium text-nexus-muted">Button Text</label>
-                            <input 
-                              type="text" 
-                              value={newPage.button_text}
-                              onChange={e => setNewPage(prev => ({ ...prev, button_text: e.target.value }))}
-                              placeholder="e.g. Get Started"
-                              className="nexus-input"
-                            />
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            <label className="text-sm font-medium text-nexus-muted">Custom Logo URL (Optional)</label>
-                            <input 
-                              type="text" 
-                              value={newPage.logo_url}
-                              onChange={e => setNewPage(prev => ({ ...prev, logo_url: e.target.value }))}
-                              placeholder="https://example.com/logo.png"
-                              className="nexus-input"
-                            />
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            <label className="text-sm font-medium text-nexus-muted">AI Instructions (Prompt)</label>
-                            <textarea 
-                              value={newPage.ai_prompt}
-                              onChange={e => setNewPage(prev => ({ ...prev, ai_prompt: e.target.value }))}
-                              placeholder="e.g. Make it a luxury car rental landing page with gold accents..."
-                              className="nexus-input h-24 resize-none text-sm"
-                            />
-                          </div>
-
-                          <div className="flex items-center gap-3 p-4 bg-nexus-bg/50 rounded-lg border border-nexus-border">
-                            <input 
-                              type="checkbox" 
-                              id="webhook_enabled"
-                              checked={newPage.webhook_enabled}
-                              onChange={e => setNewPage(prev => ({ ...prev, webhook_enabled: e.target.checked }))}
-                              className="w-5 h-5 rounded border-nexus-border bg-nexus-bg text-nexus-accent focus:ring-nexus-accent"
-                            />
-                            <label htmlFor="webhook_enabled" className="text-sm font-medium cursor-pointer">
-                              Enable Webhook & Bot Protection
-                              <span className="block text-xs text-nexus-muted font-normal">Automatically capture forms and clicks</span>
-                            </label>
-                          </div>
-                          <div className="flex gap-4 pt-4">
-                            <button 
-                              onClick={generateWithAI}
-                              disabled={isGenerating || !newPage.title}
-                              className="nexus-button flex-1 flex items-center justify-center gap-2"
-                            >
-                              {isGenerating ? <RefreshCw className="animate-spin" size={18} /> : <Zap size={18} />}
-                              Generate with AI
-                            </button>
-                            <button 
-                              onClick={() => { setIsCreating(false); setEditingId(null); }}
-                              className="nexus-button-secondary flex-1"
-                            >
-                              Cancel
-                            </button>
+                          <div>
+                            <h3 className="text-xl font-black tracking-tighter uppercase italic">{editingId ? 'Reconfigure Signal Node' : 'Deploy New Signal Node'}</h3>
+                            <p className="text-[10px] font-mono text-nexus-muted uppercase tracking-widest">Node ID: {editingId || 'Pending Initialization'}</p>
                           </div>
                         </div>
-
-                        <div className="flex flex-col gap-2">
-                          <label className="text-sm font-medium text-nexus-muted">HTML/CSS Code</label>
-                          <textarea 
-                            value={newPage.content}
-                            onChange={e => setNewPage(prev => ({ ...prev, content: e.target.value }))}
-                            placeholder="Paste your code here or generate with AI..."
-                            className="nexus-input h-64 font-mono text-xs resize-none"
-                          />
+                        <div className="flex items-center gap-4">
+                          <button 
+                            onClick={handleSavePage}
+                            disabled={!newPage.title || !newPage.content}
+                            className="nexus-button px-8 py-3 flex items-center gap-2"
+                          >
+                            <Save size={18} />
+                            <span className="uppercase tracking-widest text-xs">{editingId ? 'Update Node' : 'Deploy Node'}</span>
+                          </button>
+                          <button 
+                            onClick={() => { setIsCreating(false); setEditingId(null); }}
+                            className="p-2 text-nexus-muted hover:text-nexus-text transition-colors"
+                          >
+                            <Plus className="rotate-45" size={32} />
+                          </button>
                         </div>
                       </div>
 
-                      <div className="mt-8 pt-8 border-t border-nexus-border flex justify-end">
-                        <button 
-                          onClick={handleSavePage}
-                          disabled={!newPage.title || !newPage.content}
-                          className="nexus-button px-12"
-                        >
-                          {editingId ? 'Update Page' : 'Save Page'}
-                        </button>
+                      <div className="flex-1 flex overflow-hidden">
+                        {/* Left Column: Settings & History */}
+                        <div className="w-80 border-r border-nexus-border flex flex-col overflow-y-auto bg-black/20">
+                          <div className="p-6 space-y-8">
+                            <div className="space-y-6">
+                              <h4 className="text-[10px] font-mono font-bold text-nexus-accent uppercase tracking-[0.2em] flex items-center gap-2">
+                                <Settings size={12} />
+                                Node Configuration
+                              </h4>
+                              <div className="space-y-4">
+                                <div className="flex flex-col gap-2">
+                                  <label className="text-[10px] font-mono text-nexus-muted uppercase tracking-widest ml-1">Title</label>
+                                  <input 
+                                    type="text" 
+                                    value={newPage.title}
+                                    onChange={e => setNewPage(prev => ({ ...prev, title: e.target.value }))}
+                                    placeholder="e.g. Welcome Landing"
+                                    className="nexus-input text-sm py-2"
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                  <label className="text-[10px] font-mono text-nexus-muted uppercase tracking-widest ml-1">Action Button</label>
+                                  <input 
+                                    type="text" 
+                                    value={newPage.button_text}
+                                    onChange={e => setNewPage(prev => ({ ...prev, button_text: e.target.value }))}
+                                    placeholder="e.g. Get Started"
+                                    className="nexus-input text-sm py-2"
+                                  />
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                  <label className="text-[10px] font-mono text-nexus-muted uppercase tracking-widest ml-1">Logo URL</label>
+                                  <input 
+                                    type="text" 
+                                    value={newPage.logo_url}
+                                    onChange={e => setNewPage(prev => ({ ...prev, logo_url: e.target.value }))}
+                                    placeholder="https://example.com/logo.png"
+                                    className="nexus-input text-sm py-2"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="space-y-6">
+                              <h4 className="text-[10px] font-mono font-bold text-nexus-accent uppercase tracking-[0.2em] flex items-center gap-2">
+                                <RefreshCw size={12} />
+                                Signal History (Last 9)
+                              </h4>
+                              <div className="space-y-3">
+                                {newPage.history.length === 0 ? (
+                                  <div className="p-4 rounded-xl border border-dashed border-nexus-border text-center">
+                                    <p className="text-[10px] font-mono text-nexus-muted uppercase tracking-widest">No history packets</p>
+                                  </div>
+                                ) : (
+                                  newPage.history.map((h, i) => (
+                                    <div key={i} className="p-3 rounded-xl bg-white/5 border border-nexus-border group">
+                                      <div className="flex items-center justify-between mb-1">
+                                        <span className="text-[9px] font-mono text-nexus-accent uppercase tracking-widest">Packet {i + 1}</span>
+                                        <span className="text-[8px] font-mono text-nexus-muted uppercase">Stored</span>
+                                      </div>
+                                      <p className="text-[11px] text-nexus-muted line-clamp-2 group-hover:line-clamp-none transition-all">{h}</p>
+                                    </div>
+                                  ))
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Center Column: AI Prompt */}
+                        <div className="w-96 border-r border-nexus-border flex flex-col bg-black/10">
+                          <div className="p-6 flex flex-col h-full gap-6">
+                            <div className="flex-1 flex flex-col gap-4">
+                              <h4 className="text-[10px] font-mono font-bold text-nexus-accent uppercase tracking-[0.2em] flex items-center gap-2">
+                                <Zap size={12} />
+                                AI Uplink (Gemini 3.1)
+                              </h4>
+                              <p className="text-xs text-nexus-muted leading-relaxed">
+                                Describe the modifications or the new page design. The AI remembers the history of this node.
+                              </p>
+                              <textarea 
+                                value={newPage.ai_prompt}
+                                onChange={e => setNewPage(prev => ({ ...prev, ai_prompt: e.target.value }))}
+                                placeholder="e.g. Change the background to a deep space nebula and make the button glow emerald green..."
+                                className="nexus-input flex-1 resize-none text-sm p-4 font-sans leading-relaxed"
+                              />
+                            </div>
+                            <div className="space-y-4">
+                              <div className="flex items-center gap-3 p-4 bg-nexus-accent/5 rounded-xl border border-nexus-accent/10">
+                                <input 
+                                  type="checkbox" 
+                                  id="webhook_enabled_modal"
+                                  checked={newPage.webhook_enabled}
+                                  onChange={e => setNewPage(prev => ({ ...prev, webhook_enabled: e.target.checked }))}
+                                  className="w-5 h-5 rounded border-nexus-border bg-nexus-bg text-nexus-accent focus:ring-nexus-accent"
+                                />
+                                <label htmlFor="webhook_enabled_modal" className="text-[10px] font-mono font-bold uppercase tracking-widest cursor-pointer">
+                                  Signal Interception Active
+                                </label>
+                              </div>
+                              <button 
+                                onClick={generateWithAI}
+                                disabled={isGenerating || !newPage.title}
+                                className="nexus-button w-full py-4 flex items-center justify-center gap-3 group"
+                              >
+                                {isGenerating ? <RefreshCw className="animate-spin" size={20} /> : <Zap className="group-hover:scale-110 transition-transform" size={20} />}
+                                <span className="uppercase tracking-widest text-sm">Transmit Signal</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Right Column: Code Editor */}
+                        <div className="flex-1 flex flex-col bg-black/30">
+                          <div className="p-4 border-b border-nexus-border flex items-center justify-between bg-white/[0.02]">
+                            <h4 className="text-[10px] font-mono font-bold text-nexus-accent uppercase tracking-[0.2em] flex items-center gap-2">
+                              <Code size={12} />
+                              Source Code Terminal
+                            </h4>
+                            <div className="flex items-center gap-4">
+                              <span className="text-[10px] font-mono text-nexus-muted uppercase tracking-widest">{newPage.content.length} Bytes</span>
+                              <button 
+                                onClick={() => {
+                                  navigator.clipboard.writeText(newPage.content);
+                                  showNotification("Code copied to clipboard", "success");
+                                }}
+                                className="p-1.5 text-nexus-muted hover:text-nexus-accent transition-colors"
+                                title="Copy Source"
+                              >
+                                <Copy size={16} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex-1 relative">
+                            <textarea 
+                              value={newPage.content}
+                              onChange={e => setNewPage(prev => ({ ...prev, content: e.target.value }))}
+                              placeholder="Paste your code here or generate with AI..."
+                              className="absolute inset-0 w-full h-full bg-transparent p-8 font-mono text-xs resize-none focus:outline-none text-nexus-accent/90 selection:bg-nexus-accent/20"
+                              spellCheck={false}
+                            />
+                          </div>
+                        </div>
                       </div>
                     </motion.div>
                   </div>
