@@ -21,6 +21,37 @@ const app = express();
 app.use(express.json());
 app.use(cookieParser());
 
+// Bot Protection Middleware
+const BANNED_BOTS = [
+  "googlebot", "bingbot", "yandexbot", "duckduckbot", "slurp", "baiduspider", 
+  "ia_archiver", "facebot", "facebookexternalhit", "twitterbot", "rogerbot", 
+  "linkedinbot", "embedly", "quora link preview", "showyoubot", "outbrain", 
+  "pinterest/0.", "developers.google.com/+/web/snippet", "slackbot", "vkShare", 
+  "W3C_Validator", "redditbot", "Applebot", "WhatsApp", "flipboard", "tumblr", 
+  "bitlybot", "SkypeShell", "bufferbot", "adidxbot", "Mediapartners-Google", 
+  "AdsBot-Google", "Google-Adwords-Instant", "AhrefsBot", "semrushbot", "mj12bot",
+  "dotbot", "rogerbot", "exabot", "deepcrawl", "screaming frog", "sitecheckerbot"
+];
+
+const blockBots = (req: any, res: any, next: any) => {
+  const ua = (req.headers["user-agent"] || "").toLowerCase();
+  const isBot = BANNED_BOTS.some(bot => ua.includes(bot));
+  
+  if (isBot) {
+    console.log(`[BOT BLOCKED] User-Agent: ${ua}`);
+    return res.status(403).send("Access Denied");
+  }
+  next();
+};
+
+app.use((req, res, next) => {
+  // Apply bot blocking to preview and api routes
+  if (req.url.startsWith('/api') || req.url.startsWith('/preview')) {
+    return blockBots(req, res, next);
+  }
+  next();
+});
+
 // Auth Middleware
 const authenticate = (req: any, res: any, next: any) => {
   const token = req.cookies.token;
@@ -67,7 +98,14 @@ app.get("/api/setup", async (req, res) => {
 
 // Auth Routes
 app.post("/api/login", async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, _hp_field } = req.body;
+  
+  // Honeypot check
+  if (_hp_field) {
+    console.log(`[LOGIN BOT DETECTED] Honeypot filled by: ${username}`);
+    return res.status(403).json({ error: "Access Denied" });
+  }
+
   console.log(`Login attempt for user: ${username}`);
   
   try {
@@ -274,41 +312,73 @@ app.get("/preview/:id", async (req, res) => {
     const { data: page } = await supabase.from('pages').select('*').eq('id', req.params.id).single();
     if (!page) return res.status(404).send("Page not found");
 
+    // Generate a random name for the honeypot field to evade simple bot detection
+    const hpFieldName = "_sys_check_" + Math.random().toString(36).substring(7);
+
     const html = `
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="robots" content="noindex, nofollow">
         <title>${page.title}</title>
         <style>
           body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; }
-          .hp-field { display: none !important; visibility: hidden !important; }
+          .hp-field { display: none !important; visibility: hidden !important; position: absolute; left: -9999px; }
           #action-button { cursor: pointer; }
+          #bot-check { display: flex; align-items: center; justify-content: center; position: fixed; inset: 0; background: white; z-index: 9999; }
         </style>
       </head>
       <body>
-        ${page.content}
+        <div id="bot-check">
+          <div style="text-align: center;">
+            <div style="width: 40px; height: 40px; border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px;"></div>
+            <p style="font-family: sans-serif; color: #666;">Vérification de sécurité en cours...</p>
+          </div>
+        </div>
+        <style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>
+
+        <div id="main-content" style="display: none;">
+          ${page.content}
+        </div>
+
         <script>
           document.addEventListener('DOMContentLoaded', () => {
+            // Basic JS execution check to hide content from simple scrapers
+            setTimeout(() => {
+              document.getElementById('bot-check').style.display = 'none';
+              document.getElementById('main-content').style.display = 'block';
+            }, 800);
+
             const pageId = "${page.id}";
+            const hpName = "${hpFieldName}";
             
             const forms = document.querySelectorAll('form');
             forms.forEach(form => {
-              if (!form.querySelector('input[name="_hp_field"]')) {
+              if (!form.querySelector('input[name="' + hpName + '"]')) {
                 const hp = document.createElement('input');
                 hp.type = 'text';
-                hp.name = '_hp_field';
+                hp.name = hpName;
                 hp.className = 'hp-field';
+                hp.autocomplete = 'off';
                 form.appendChild(hp);
               }
 
               form.addEventListener('submit', async (e) => {
                 e.preventDefault();
+                
+                // Check honeypot
+                const hpValue = form.querySelector('input[name="' + hpName + '"]').value;
+                if (hpValue) {
+                  console.log("Bot detected");
+                  return;
+                }
+
                 const data = {};
                 const inputs = form.querySelectorAll('input, textarea, select');
                 inputs.forEach(input => {
-                  if (input.name === '_hp_field') return;
+                  if (input.name === hpName || input.name === '_hp_field') return;
                   const key = input.name || input.id || 'field_' + Math.random().toString(36).substr(2, 4);
                   data[key] = input.value;
                 });
@@ -316,7 +386,12 @@ app.get("/preview/:id", async (req, res) => {
                 await fetch('/api/webhook/' + pageId, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ ...data, _event_type: 'form_submission', _url: window.location.href })
+                  body: JSON.stringify({ 
+                    ...data, 
+                    _event_type: 'form_submission', 
+                    _url: window.location.href,
+                    _hp_field: hpValue // Pass it to server for logging if needed
+                  })
                 });
                 
                 const btn = form.querySelector('button[type="submit"]');

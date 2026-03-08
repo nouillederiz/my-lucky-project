@@ -100,11 +100,24 @@ const LoginPage = ({ onLogin }: { onLogin: (user: any) => void }) => {
     e.preventDefault();
     setLoading(true);
     setError('');
+    
+    // Honeypot check (client side as well)
+    const formData = new FormData(e.target as HTMLFormElement);
+    if (formData.get('_hp_field')) {
+      setError('Bot detected');
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ 
+          username, 
+          password,
+          _hp_field: formData.get('_hp_field')
+        })
       });
       if (res.ok) {
         const user = await res.json();
@@ -149,6 +162,9 @@ const LoginPage = ({ onLogin }: { onLogin: (user: any) => void }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Honeypot field */}
+          <input type="text" name="_hp_field" className="hidden" tabIndex={-1} autoComplete="off" />
+          
           <div className="space-y-2">
             <label className="text-xs font-bold text-nexus-muted uppercase tracking-widest ml-1">Operator ID</label>
             <div className="relative">
