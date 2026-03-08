@@ -687,6 +687,10 @@ export default function App() {
   };
 
   const generateWithAI = async () => {
+    if (!process.env.GEMINI_API_KEY) {
+      showNotification("Clé API Gemini manquante dans les variables d'environnement", "error");
+      return;
+    }
     setIsGenerating(true);
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -712,9 +716,10 @@ export default function App() {
       
       const html = response.text || '';
       setNewPage(prev => ({ ...prev, content: html }));
-      showNotification("AI Generation complete", "success");
-    } catch (err) {
-      showNotification("AI Generation failed", "error");
+      showNotification("Génération IA terminée !", "success");
+    } catch (err: any) {
+      console.error("AI Generation Error:", err);
+      showNotification(`Erreur IA: ${err.message || "Échec de la génération"}`, "error");
     } finally {
       setIsGenerating(false);
     }
