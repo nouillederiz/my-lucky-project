@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Export Ph1sh3ur Pro</title>
+</head>
+<body>
+    <h1>Votre build est prêt !</h1>
+    <p>Cliquez sur le bouton ci-dessous pour télécharger le fichier <code>index.html</code> unique.</p>
+    <p>C'est ce fichier (et lui seul) que vous devez uploader sur Amen.fr.</p>
+    <a id="download-link" href="#" download="index.html" style="padding: 10px 20px; background: #10b981; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">Télécharger index.html</a>
+
+    <script>
+        // On va injecter le contenu du build ici
+        const buildContent = `...`; // On va remplacer ça par le contenu réel
+        const blob = new Blob([buildContent], { type: 'text/html' });
+        const url = URL.createObjectURL(blob);
+        document.getElementById('download-link').href = url;
+    </script>
+</body>
+</html>

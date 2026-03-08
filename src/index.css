@@ -1,0 +1,54 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-nexus-bg: #000000;
+  --color-nexus-card: #0A0A0B;
+  --color-nexus-border: #1A1A1C;
+  --color-nexus-accent: #00FF41;
+  --color-nexus-text: #F4F4F5;
+  --color-nexus-muted: #71717A;
+}
+
+@layer base {
+  body {
+    @apply bg-nexus-bg text-nexus-text font-sans antialiased selection:bg-nexus-accent selection:text-black;
+    background-image: 
+      radial-gradient(circle at 50% 50%, rgba(0, 255, 65, 0.05) 0%, transparent 50%),
+      linear-gradient(rgba(0, 255, 65, 0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 255, 65, 0.02) 1px, transparent 1px);
+    background-size: 100% 100%, 30px 30px, 30px 30px;
+  }
+}
+
+.glass-panel {
+  @apply bg-nexus-card/80 backdrop-blur-xl border border-nexus-border rounded-2xl shadow-[0_0_20px_rgba(0,0,0,0.5)];
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.glass-panel:hover {
+  @apply border-nexus-accent/20 shadow-[0_0_30px_rgba(0,255,65,0.05)];
+}
+
+.nexus-input {
+  @apply bg-black/50 border border-nexus-border rounded-xl px-4 py-3 focus:outline-none focus:border-nexus-accent/50 focus:ring-1 focus:ring-nexus-accent/20 transition-all text-sm;
+}
+
+.nexus-button {
+  @apply bg-nexus-accent hover:bg-nexus-accent/90 text-black font-bold px-6 py-3 rounded-xl transition-all active:scale-95 disabled:opacity-50 shadow-[0_0_15px_rgba(0,255,65,0.3)] hover:shadow-[0_0_25px_rgba(0,255,65,0.5)];
+}
+
+.nexus-button-secondary {
+  @apply bg-nexus-card border border-nexus-border hover:bg-nexus-border hover:border-nexus-accent/30 text-nexus-text font-medium px-4 py-2 rounded-xl transition-all active:scale-95;
+}
+
+.matrix-glow {
+  text-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
+}
+
+.matrix-border-glow {
+  box-shadow: 0 0 15px rgba(0, 255, 65, 0.2);
+}
